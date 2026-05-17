@@ -1,0 +1,19 @@
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Rust build
+target/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Claude Code
+.claude/

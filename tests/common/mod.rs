@@ -4,14 +4,13 @@ use axum::{
     middleware::Next,
     Router,
 };
+use http_body_util::BodyExt;
 use posixfy_bridge::api;
 use posixfy_bridge::config::AppConfig;
 use posixfy_bridge::fs::lock::LockManager;
 use posixfy_bridge::fs::watcher::FileWatcher;
 use posixfy_bridge::models::mount::MountPoint;
-use posixfy_bridge::AppState;
 use posixfy_bridge::RequestId;
-use http_body_util::BodyExt;
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;

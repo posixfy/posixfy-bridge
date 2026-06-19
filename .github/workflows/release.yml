@@ -100,3 +100,23 @@ jobs:
           name: v${{ env.VERSION }}
           body: ${{ needs.check-version.outputs.release_notes }}
           generate_release_notes: false
+
+      - name: Archive CHANGELOG [Unreleased] section
+        run: |
+          DATE=$(date +%Y-%m-%d)
+          awk -v ver="$VERSION" -v date="$DATE" '
+            !done && /^## \[Unreleased\]/ {
+              print; print ""; print "## [" ver "] - " date
+              done=1; next
+            }
+            { print }
+          ' CHANGELOG.md > CHANGELOG.tmp && mv CHANGELOG.tmp CHANGELOG.md
+          if git diff --quiet -- CHANGELOG.md; then
+            echo "CHANGELOG unchanged, nothing to archive"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          git commit -m "docs: archive CHANGELOG for v${VERSION} [skip ci]"
+          git push origin HEAD:main

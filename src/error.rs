@@ -33,14 +33,21 @@ impl IntoResponse for AppError {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Internal server error".to_string(),
             ),
-            AppError::Io(e) => {
-                tracing::error!("IO error: {e}");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
-            }
+            AppError::Io(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Internal server error".to_string(),
+            ),
         };
+
+        // Log every error response so failures are never silent: server errors at
+        // error level, client errors (4xx) at warn. The log carries the real
+        // underlying error even when the client-facing message is generic.
+        if status.is_server_error() {
+            tracing::error!(status = status.as_u16(), error = %self, "request failed");
+        } else {
+            tracing::warn!(status = status.as_u16(), error = %self, "request rejected");
+        }
+
         let body = axum::Json(json!({ "error": message }));
         (status, body).into_response()
     }

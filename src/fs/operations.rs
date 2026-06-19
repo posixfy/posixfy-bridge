@@ -21,25 +21,34 @@ pub async fn list_dir(
     let groups = groups.to_vec();
     tokio::task::spawn_blocking(move || {
         let _guard = FsUidGuard::new(uid, gid, &groups);
-        let mut entries = Vec::new();
-        for entry in std::fs::read_dir(&path)? {
-            let entry = entry?;
-            let metadata = entry.metadata()?;
-            let modified = metadata
-                .modified()
-                .ok()
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| d.as_secs() as i64)
-                .unwrap_or(0);
-            entries.push(DirEntry {
-                name: entry.file_name().to_string_lossy().to_string(),
-                is_dir: metadata.is_dir(),
-                size: metadata.len(),
-                modified,
-            });
+        let res = (|| -> Result<Vec<DirEntry>, std::io::Error> {
+            let mut entries = Vec::new();
+            for entry in std::fs::read_dir(&path)? {
+                let entry = entry?;
+                let metadata = entry.metadata()?;
+                let modified = metadata
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_millis() as i64)
+                    .unwrap_or(0);
+                entries.push(DirEntry {
+                    name: entry.file_name().to_string_lossy().to_string(),
+                    is_dir: metadata.is_dir(),
+                    size: metadata.len(),
+                    modified,
+                });
+            }
+            entries.sort_by(|a, b| a.name.cmp(&b.name));
+            Ok(entries)
+        })();
+        match &res {
+            Ok(entries) => {
+                tracing::debug!(path = %path.display(), uid, count = entries.len(), "listed directory")
+            }
+            Err(e) => tracing::error!(path = %path.display(), uid, error = %e, "list failed"),
         }
-        entries.sort_by(|a, b| a.name.cmp(&b.name));
-        Ok(entries)
+        res
     })
     .await
     .map_err(std::io::Error::other)?
@@ -55,7 +64,14 @@ pub async fn read_file(
     let groups = groups.to_vec();
     tokio::task::spawn_blocking(move || {
         let _guard = FsUidGuard::new(uid, gid, &groups);
-        std::fs::read(&path)
+        let res = std::fs::read(&path);
+        match &res {
+            Ok(data) => {
+                tracing::debug!(path = %path.display(), uid, bytes = data.len(), "read file")
+            }
+            Err(e) => tracing::error!(path = %path.display(), uid, error = %e, "read failed"),
+        }
+        res
     })
     .await
     .map_err(std::io::Error::other)?
@@ -72,7 +88,14 @@ pub async fn write_file(
     let groups = groups.to_vec();
     tokio::task::spawn_blocking(move || {
         let _guard = FsUidGuard::new(uid, gid, &groups);
-        std::fs::write(&path, data)
+        let res = std::fs::write(&path, &data);
+        match &res {
+            Ok(()) => {
+                tracing::info!(path = %path.display(), uid, bytes = data.len(), "wrote file")
+            }
+            Err(e) => tracing::error!(path = %path.display(), uid, error = %e, "write failed"),
+        }
+        res
     })
     .await
     .map_err(std::io::Error::other)?
@@ -88,11 +111,32 @@ pub async fn delete_path(
     let groups = groups.to_vec();
     tokio::task::spawn_blocking(move || {
         let _guard = FsUidGuard::new(uid, gid, &groups);
-        let metadata = std::fs::metadata(&path)?;
-        if metadata.is_dir() {
-            std::fs::remove_dir_all(&path)
-        } else {
-            std::fs::remove_file(&path)
+        match std::fs::metadata(&path) {
+            Ok(metadata) => {
+                let res = if metadata.is_dir() {
+                    std::fs::remove_dir_all(&path)
+                } else {
+                    std::fs::remove_file(&path)
+                };
+                match &res {
+                    Ok(()) => tracing::info!(path = %path.display(), uid, "deleted path"),
+                    Err(e) => {
+                        tracing::error!(path = %path.display(), uid, error = %e, "delete failed")
+                    }
+                }
+                res
+            }
+            // Idempotent: deleting an already-absent path is a success. External
+            // clients (e.g. a Mac over a network share) may recreate/remove files
+            // like .DS_Store concurrently; we should not report a spurious error.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                tracing::info!(path = %path.display(), uid, "delete: already absent");
+                Ok(())
+            }
+            Err(e) => {
+                tracing::error!(path = %path.display(), uid, error = %e, "delete failed (stat)");
+                Err(e)
+            }
         }
     })
     .await
@@ -109,13 +153,18 @@ pub async fn create_dir(
     let groups = groups.to_vec();
     tokio::task::spawn_blocking(move || {
         let _guard = FsUidGuard::new(uid, gid, &groups);
-        std::fs::create_dir_all(&path)
+        let res = std::fs::create_dir_all(&path);
+        match &res {
+            Ok(()) => tracing::info!(path = %path.display(), uid, "created directory"),
+            Err(e) => tracing::error!(path = %path.display(), uid, error = %e, "mkdir failed"),
+        }
+        res
     })
     .await
     .map_err(std::io::Error::other)?
 }
 
-/// Returns (size, mtime_secs) for a file. Returns None if the file does not exist.
+/// Returns (size, mtime_millis) for a file. Returns None if the file does not exist.
 pub async fn stat_file(
     path: &Path,
     uid: u32,
@@ -132,7 +181,7 @@ pub async fn stat_file(
                     .modified()
                     .ok()
                     .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|d| d.as_secs() as i64)
+                    .map(|d| d.as_millis() as i64)
                     .unwrap_or(0);
                 Ok(Some((meta.len(), mtime)))
             }
@@ -157,7 +206,16 @@ pub async fn rename_path(
     let groups = groups.to_vec();
     tokio::task::spawn_blocking(move || {
         let _guard = FsUidGuard::new(uid, gid, &groups);
-        std::fs::rename(&from, &to)
+        let res = std::fs::rename(&from, &to);
+        match &res {
+            Ok(()) => {
+                tracing::info!(from = %from.display(), to = %to.display(), uid, "renamed path")
+            }
+            Err(e) => {
+                tracing::error!(from = %from.display(), to = %to.display(), uid, error = %e, "rename failed")
+            }
+        }
+        res
     })
     .await
     .map_err(std::io::Error::other)?

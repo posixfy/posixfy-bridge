@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 - File modification times (`modified`) are now emitted as epoch **milliseconds** instead of seconds. This fixes timestamps that appeared near 1970 in clients that pass the value to JavaScript's `Date`. Affects directory listings, file `stat`, and SSE change events.
+- Renamed remaining legacy "FileBridge" references to "Posixfy" (LICENSE copyright holder, README example mount path, test helper doc comment). No functional change.
 
 ### Added
 - Structured `tracing` logging for every filesystem operation (list, read, write, delete, mkdir, rename), including the target path and acting UID — mutating ops at `info`, reads at `debug`, failures at `error`. All error responses are now logged (4xx at `warn`, 5xx at `error`); previously only IO errors were logged.

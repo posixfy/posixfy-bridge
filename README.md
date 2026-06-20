@@ -43,7 +43,7 @@ docker run -d \
 cargo build --release
 
 API_KEY=dev-key \
-MOUNT_POINTS=data:/tmp/filebridge-data \
+MOUNT_POINTS=data:/tmp/posixfy-data \
 RUST_LOG=info \
 ./target/release/posixfy-bridge
 ```

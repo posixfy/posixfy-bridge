@@ -41,7 +41,7 @@ async fn request_id_middleware(req: Request<Body>, next: Next) -> Response<Body>
     resp
 }
 
-/// In-process test helper that builds the FileBridge app with a temporary mount point.
+/// In-process test helper that builds the Posixfy Bridge app with a temporary mount point.
 pub struct TestApp {
     pub app: Router,
     pub _tmp: TempDir,
